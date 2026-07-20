@@ -61,6 +61,7 @@ $$
 此时 $\mathbf{w}_{\mathrm{CBF}}^{H}\mathbf{a}_0 = 1$。
 
 > 常规波束形成只根据目标方向设计，不利用实际干扰协方差。因此会在目标方向形成主瓣，但**不一定在干扰方向形成深零陷**。
+> CBF:Conventional Beamforming
 
 ---
 
