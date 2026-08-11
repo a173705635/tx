@@ -12,17 +12,30 @@ from antenna_diversity.array.steering import steering_vector
 from antenna_diversity.models import SimulationResults
 
 
-def _plot_spectrum(axis, x: np.ndarray, fs_hz: float, title: str) -> None:
-    samples = np.asarray(x).reshape(-1)
-    n_fft = min(65_536, samples.size)
-    samples = samples[:n_fft]
+def _calculate_spectrum(
+    x: np.ndarray,
+    fs_hz: float,
+    n_fft: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    samples = np.asarray(x).reshape(-1)[:n_fft]
     window = 0.54 - 0.46 * np.cos(
         2.0 * np.pi * np.arange(n_fft) / max(1, n_fft - 1)
     )
     spectrum = np.fft.fftshift(np.fft.fft(samples * window))
-    frequency_mhz = np.fft.fftshift(np.fft.fftfreq(n_fft, 1.0 / fs_hz)) / 1e6
+    frequency_mhz = (
+        np.fft.fftshift(np.fft.fftfreq(n_fft, 1.0 / fs_hz)) / 1e6
+    )
     magnitude_db = 20.0 * np.log10(
         np.maximum(np.abs(spectrum), np.finfo(float).eps)
+    )
+    return frequency_mhz, magnitude_db
+
+
+def _plot_spectrum(axis, x: np.ndarray, fs_hz: float, title: str) -> None:
+    samples = np.asarray(x).reshape(-1)
+    n_fft = min(65_536, samples.size)
+    frequency_mhz, magnitude_db = _calculate_spectrum(
+        samples, fs_hz, n_fft
     )
     axis.plot(frequency_mhz, magnitude_db, linewidth=0.8)
     axis.grid(True)
@@ -56,6 +69,91 @@ def plot_spectra(results: SimulationResults) -> Figure:
         "DFE output",
     )
     figure.suptitle("RF and DFE chain")
+    return figure
+
+
+def plot_combined_spectra(results: SimulationResults) -> Figure:
+    """Compare absolute spectra after SINGLE, EGC, and MVDR combining."""
+
+    required_modes = ("single", "egc", "mvdr")
+    if not results.branches:
+        raise ValueError("results must contain at least one combined branch")
+    missing_modes = [
+        mode for mode in required_modes if mode not in results.branches
+    ]
+    if missing_modes:
+        raise ValueError(
+            "combined spectrum requires single, egc, and mvdr branches"
+        )
+
+    combined: dict[str, np.ndarray] = {}
+    for mode in required_modes:
+        values = np.asarray(results.branches[mode].combined)
+        if values.ndim != 1 or values.size == 0:
+            raise ValueError(
+                "each combined branch must be a nonempty one-dimensional array"
+            )
+        combined[mode] = values
+
+    n_fft = min(
+        65_536,
+        *(values.size for values in combined.values()),
+    )
+    fs_hz = results.dfe_info["fs_out_hz"]
+    spectra = {
+        mode: _calculate_spectrum(values, fs_hz, n_fft)
+        for mode, values in combined.items()
+    }
+    all_magnitudes = np.concatenate(
+        [magnitude_db for _, magnitude_db in spectra.values()]
+    )
+    y_min = float(np.min(all_magnitudes))
+    y_max = float(np.max(all_magnitudes))
+    y_padding = max(1.0, 0.03 * (y_max - y_min))
+
+    figure, axes = plt.subplots(
+        3,
+        1,
+        figsize=(10, 9),
+        sharex=True,
+        sharey=True,
+        constrained_layout=True,
+    )
+    target_frequency_mhz = results.truth["doppler_hz"] / 1e6
+    jammer_frequency_mhz = results.config.jammer.offset_hz / 1e6
+    for axis, mode in zip(axes, required_modes, strict=True):
+        frequency_mhz, magnitude_db = spectra[mode]
+        axis.plot(
+            frequency_mhz,
+            magnitude_db,
+            linewidth=0.8,
+            zorder=3,
+        )
+        axis.axvline(
+            target_frequency_mhz,
+            color="green",
+            linestyle="--",
+            label="Target Doppler",
+            alpha=0.75,
+            zorder=1,
+        )
+        if results.config.jammer.enable:
+            axis.axvline(
+                jammer_frequency_mhz,
+                color="red",
+                linestyle="--",
+                label="Jammer offset",
+                alpha=0.75,
+                zorder=1,
+            )
+        axis.set_xlim(frequency_mhz[0], frequency_mhz[-1])
+        axis.set_ylim(y_min - y_padding, y_max + y_padding)
+        axis.set_ylabel("Magnitude (dB)")
+        axis.set_title(f"{mode.upper()} combined output")
+        axis.grid(True)
+    axes[-1].set_xlabel("Frequency (MHz)")
+    axes[0].legend(loc="best")
+    figure.suptitle("Spectra after antenna combining")
     return figure
 
 
@@ -264,6 +362,7 @@ def plot_results(results: SimulationResults) -> dict[str, Figure]:
 
     return {
         "rf_dfe_spectra": plot_spectra(results),
+        "combined_spectra": plot_combined_spectra(results),
         "array_response": plot_array_response(results),
         "acquisition_search": plot_acquisition(results),
         "tracking_comparison": plot_tracking(results),

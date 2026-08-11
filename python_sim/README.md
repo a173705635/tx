@@ -31,9 +31,12 @@ python run_end_to_end.py
 运行脚本会在终端显示 single、EGC 和 MVDR 的指标，并把图保存到 `python_sim/results/`：
 
 - `rf_dfe_spectra.png`
+- `combined_spectra.png`
 - `array_response.png`
 - `acquisition_search.png`
 - `tracking_comparison.png`
+
+`combined_spectra.png` 使用三个共享坐标范围的子图，依次显示 SINGLE、EGC 和 MVDR 合并后的绝对幅度频谱。绿色虚线标记目标 Doppler，红色虚线标记 DDC 后的干扰频偏；共享尺度可以直接观察 MVDR 对窄带干扰谱线的抑制程度。
 
 无图形界面运行时可使用：
 

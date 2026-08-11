@@ -10,6 +10,7 @@ import sys
 
 from antenna_diversity.analysis.plotting import (
     plot_acquisition,
+    plot_combined_spectra,
     plot_results,
     save_figures,
 )
@@ -34,7 +35,7 @@ def test_acquisition_plot_contains_maps_slices_and_peak_markers(tmp_path):
     plt.close(figure)
 
 
-def test_plot_results_produces_four_named_figures(tmp_path):
+def test_plot_results_produces_five_named_figures(tmp_path):
     """Catch omission of a stage-level diagnostic figure from the full report."""
     cfg = default_config()
     cfg.plot.enable = False
@@ -45,6 +46,7 @@ def test_plot_results_produces_four_named_figures(tmp_path):
 
     assert set(figures) == {
         "rf_dfe_spectra",
+        "combined_spectra",
         "array_response",
         "acquisition_search",
         "tracking_comparison",
@@ -52,6 +54,35 @@ def test_plot_results_produces_four_named_figures(tmp_path):
     assert all(path.is_file() and path.stat().st_size > 0 for path in paths.values())
     for figure in figures.values():
         plt.close(figure)
+
+
+def test_combined_spectra_share_axes_and_show_all_modes(tmp_path):
+    """Catch omitted branches or independent scales that hide jammer rejection."""
+    cfg = default_config()
+    cfg.plot.enable = False
+    results = run_end_to_end(cfg)
+
+    figure = plot_combined_spectra(results)
+    paths = save_figures({"combined_spectra": figure}, tmp_path)
+    main_axes = figure.axes
+
+    assert len(main_axes) == 3
+    assert [axis.get_title() for axis in main_axes] == [
+        "SINGLE combined output",
+        "EGC combined output",
+        "MVDR combined output",
+    ]
+    assert all(len(axis.lines) >= 3 for axis in main_axes)
+    assert all(
+        axis.lines[0].get_zorder()
+        > max(line.get_zorder() for line in axis.lines[1:])
+        for axis in main_axes
+    )
+    assert all(axis.get_xlim() == main_axes[0].get_xlim() for axis in main_axes)
+    assert all(axis.get_ylim() == main_axes[0].get_ylim() for axis in main_axes)
+    assert paths["combined_spectra"].is_file()
+    assert paths["combined_spectra"].stat().st_size > 0
+    plt.close(figure)
 
 
 def test_cli_avoids_show_warning_with_noninteractive_backend():
